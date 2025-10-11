@@ -7,7 +7,7 @@ using System.Linq;
 
 namespace DepotDownloader
 {
-    static class DepotKeyStore
+    public static class DepotKeyStore
     {
         private static Dictionary<uint, byte[]> depotKeysCache = new Dictionary<uint, byte[]>();
 
@@ -44,6 +44,23 @@ namespace DepotDownloader
             return depotKeysCache[depotId];
         }
 
+        public static bool AddKey(string value)
+        {
+            string[] split = value.Split(';');
 
+            if (split.Length != 2)
+            {
+                throw new FormatException($"Invalid depot key line: {value}");
+            }
+
+            uint depotId = uint.Parse(split[0]);
+            if (depotKeysCache.ContainsKey(depotId))
+            {
+                return false; // Key already exists
+            }
+
+            depotKeysCache[depotId] = StringToByteArray(split[1]);
+            return true; // Key was added
+        }
     }
 }

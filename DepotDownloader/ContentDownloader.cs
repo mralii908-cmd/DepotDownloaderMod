@@ -19,7 +19,18 @@ namespace DepotDownloader
     {
     }
 
-    static class ContentDownloader
+    public class DownloadProgressEventArgs : EventArgs
+    {
+        public uint DepotId { get; set; }
+        public double Progress { get; set; }
+        public ulong DownloadedBytes { get; set; }
+        public ulong TotalBytes { get; set; }
+        public string CurrentFile { get; set; }
+        public int ProcessedFiles { get; set; }
+        public int TotalFiles { get; set; }
+    }
+
+    public static class ContentDownloader
     {
         public const uint INVALID_APP_ID = uint.MaxValue;
         public const uint INVALID_DEPOT_ID = uint.MaxValue;
@@ -27,6 +38,19 @@ namespace DepotDownloader
         public const string DEFAULT_BRANCH = "public";
 
         public static DownloadConfig Config = new();
+
+        // Progress reporting events
+        public static event EventHandler<DownloadProgressEventArgs> ProgressUpdated;
+
+        // Logging event for GUI
+        public static event EventHandler<string> LogMessage;
+
+        // Cancellation support
+        public static CancellationTokenSource ExternalCancellationTokenSource;
+
+        // Pause support
+        private static bool _isPaused = false;
+        private static readonly ManualResetEventSlim _pauseEvent = new ManualResetEventSlim(true); // Initially not paused
 
         private static Steam3Session steam3;
         private static CDNClientPool cdnPool;
@@ -331,6 +355,56 @@ namespace DepotDownloader
             steam3.Disconnect();
         }
 
+        public static void StartKeyboardMonitoring(CancellationToken cancellationToken)
+        {
+            Task.Run(() =>
+            {
+                Console.WriteLine("Press 'P' to pause/resume download, 'Q' to quit gracefully");
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    if (Console.KeyAvailable)
+                    {
+                        var key = Console.ReadKey(true);
+                        if (key.Key == ConsoleKey.P)
+                        {
+                            _isPaused = !_isPaused;
+                            if (_isPaused)
+                            {
+                                Console.WriteLine("\nDownload paused. Press 'P' to resume.");
+                                _pauseEvent.Reset(); // Block all waiting threads
+                            }
+                            else
+                            {
+                                Console.WriteLine("\nDownload resumed.");
+                                _pauseEvent.Set(); // Unblock all waiting threads immediately
+                            }
+                        }
+                        else if (key.Key == ConsoleKey.Q)
+                        {
+                            Console.WriteLine("\nQuitting gracefully...");
+                            ExternalCancellationTokenSource?.Cancel();
+                            break;
+                        }
+                    }
+                    Thread.Sleep(100);
+                }
+            }, cancellationToken);
+        }
+
+        private static void CheckPauseState()
+        {
+            // Wait if paused - this will block until _pauseEvent is set (unpaused)
+            // Returns immediately if already set (not paused)
+            _pauseEvent.Wait();
+        }
+
+        private static void Log(string message)
+        {
+            var timestampedMessage = $"[{DateTime.Now:HH:mm:ss}] {message}";
+            Console.WriteLine(timestampedMessage);
+            LogMessage?.Invoke(null, timestampedMessage);
+        }
+
         public static async Task DownloadPubfileAsync(uint appId, ulong publishedFileId)
         {
             var details = await steam3.GetPublishedFileDetails(appId, publishedFileId);
@@ -588,12 +662,12 @@ namespace DepotDownloader
             if (DepotKeyStore.ContainsKey(depotId))
             {
                 depotKey = DepotKeyStore.Get(depotId);
-                steam3.DepotKeys.Add(depotId,depotKey);
+                steam3.DepotKeys.TryAdd(depotId, depotKey);
             }
             else
             {
                 await steam3.RequestDepotKey(depotId, appId);
-            }            
+            }
             if (!steam3.DepotKeys.TryGetValue(depotId, out depotKey))
             {
                 Console.WriteLine("No valid depot key for {0}, unable to download.", depotId);
@@ -660,22 +734,73 @@ namespace DepotDownloader
             public ulong sizeDownloaded;
             public ulong depotBytesCompressed;
             public ulong depotBytesUncompressed;
+            public int processedFiles;
+            public int totalFiles;
+            public DateTime lastProgressReport = DateTime.MinValue;
+            public ulong lastReportedSize = 0;
+        }
+
+        private static void ReportProgress(uint depotId, DepotDownloadCounter counter, string currentFile = null, bool force = false)
+        {
+            try
+            {
+                // Throttle progress updates to every 500ms, unless forced (file completion)
+                var now = DateTime.Now;
+                if (!force && (now - counter.lastProgressReport).TotalMilliseconds < 500)
+                    return;
+
+                counter.lastProgressReport = now;
+                counter.lastReportedSize = counter.sizeDownloaded;
+
+                ProgressUpdated?.Invoke(null, new DownloadProgressEventArgs
+                {
+                    DepotId = depotId,
+                    Progress = counter.completeDownloadSize > 0 ? (counter.sizeDownloaded / (double)counter.completeDownloadSize) * 100.0 : 0,
+                    DownloadedBytes = counter.sizeDownloaded,
+                    TotalBytes = counter.completeDownloadSize,
+                    CurrentFile = currentFile,
+                    ProcessedFiles = counter.processedFiles,
+                    TotalFiles = counter.totalFiles
+                });
+            }
+            catch
+            {
+                // Ignore errors in event handlers
+            }
         }
 
         private static async Task DownloadSteam3Async(List<DepotDownloadInfo> depots)
         {
+            Log("DownloadSteam3Async: Starting");
             Ansi.Progress(Ansi.ProgressState.Indeterminate);
-            await cdnPool.UpdateServerList();
 
-            var cts = new CancellationTokenSource();
+            Log("DownloadSteam3Async: Updating CDN server list...");
+            await cdnPool.UpdateServerList();
+            Log("DownloadSteam3Async: CDN server list updated");
+
+            var cts = ExternalCancellationTokenSource ?? new CancellationTokenSource();
+
+            // Reset pause state at the start of each download
+            _isPaused = false;
+            _pauseEvent.Set();
+
+            // Start keyboard monitoring for pause/resume in CLI mode (only if not using external cancellation)
+            if (ExternalCancellationTokenSource == null)
+            {
+                StartKeyboardMonitoring(cts.Token);
+            }
+
             var downloadCounter = new GlobalDownloadCounter();
             var depotsToDownload = new List<DepotFilesData>(depots.Count);
             var allFileNamesAllDepots = new HashSet<string>();
 
+            Log($"DownloadSteam3Async: Processing {depots.Count} depot(s)");
             // First, fetch all the manifests for each depot (including previous manifests) and perform the initial setup
             foreach (var depot in depots)
             {
+                Log($"DownloadSteam3Async: About to process depot {depot.DepotId}");
                 var depotFileData = await ProcessDepotManifestAndFiles(cts, depot, downloadCounter);
+                Log($"DownloadSteam3Async: Depot {depot.DepotId} processing completed");
 
                 if (depotFileData != null)
                 {
@@ -685,6 +810,8 @@ namespace DepotDownloader
 
                 cts.Token.ThrowIfCancellationRequested();
             }
+
+            Log("DownloadSteam3Async: All depots processed, preparing to download");
 
             // If we're about to write all the files to the same directory, we will need to first de-duplicate any files by path
             // This is in last-depot-wins order, from Steam or the list of depots supplied by the user
@@ -716,7 +843,7 @@ namespace DepotDownloader
         {
             var depotCounter = new DepotDownloadCounter();
 
-            Console.WriteLine("Processing depot {0}", depot.DepotId);
+            Log($"Processing depot {depot.DepotId}");
 
             DepotManifest oldManifest = null;
             DepotManifest newManifest = null;
@@ -729,6 +856,8 @@ namespace DepotDownloader
             DepotConfigStore.Instance.InstalledManifestIDs[depot.DepotId] = INVALID_MANIFEST_ID;
             DepotConfigStore.Save();
 
+            Log($"Checking for existing manifests (lastManifestId: {lastManifestId})");
+
             if (lastManifestId != INVALID_MANIFEST_ID)
             {
                 // We only have to show this warning if the old manifest ID was different
@@ -738,15 +867,19 @@ namespace DepotDownloader
 
             if (Config.UseManifestFile)
             {
+                Log($"Loading manifest from file: {Path.GetFileName(Config.ManifestFile)}");
                 lastManifestId = depot.ManifestId;
                 oldManifest = DepotManifest.LoadFromFile(Config.ManifestFile);
+                Log("Manifest loaded from file");
                 if (oldManifest.FilenamesEncrypted)
                 {
+                    Log("Decrypting filenames...");
                     if (!oldManifest.DecryptFilenames(depot.DepotKey))
                     {
                         Console.WriteLine("Failed to decrypt filenames in manifest file.");
                         return null;
                     }
+                    Log("Filenames decrypted");
                 }
             }
 
@@ -938,6 +1071,9 @@ namespace DepotDownloader
             Console.WriteLine("Downloading depot {0}", depot.DepotId);
 
             var files = depotFilesData.filteredFiles.Where(f => !f.Flags.HasFlag(EDepotFileFlag.Directory)).ToArray();
+            depotCounter.totalFiles = files.Length;
+            depotCounter.processedFiles = 0;
+
             var networkChunkQueue = new ConcurrentQueue<(FileStreamData fileStreamData, DepotManifest.FileData fileData, DepotManifest.ChunkData chunk)>();
 
             var parallelOptions = new ParallelOptions
@@ -1154,7 +1290,9 @@ namespace DepotDownloader
                     lock (depotDownloadCounter)
                     {
                         depotDownloadCounter.sizeDownloaded += file.TotalSize;
+                        depotDownloadCounter.processedFiles++;
                         Console.WriteLine("{0,6:#00.00}% {1}", (depotDownloadCounter.sizeDownloaded / (float)depotDownloadCounter.completeDownloadSize) * 100.0f, fileFinalPath);
+                        ReportProgress(depot.DepotId, depotDownloadCounter, file.FileName, force: true);
                     }
 
                     lock (downloadCounter)
@@ -1209,6 +1347,7 @@ namespace DepotDownloader
             DepotManifest.ChunkData chunk)
         {
             cts.Token.ThrowIfCancellationRequested();
+            CheckPauseState(); // Check if paused before downloading chunk
 
             var depot = depotFilesData.depotDownloadInfo;
             var depotDownloadCounter = depotFilesData.depotCounter;
@@ -1223,6 +1362,7 @@ namespace DepotDownloader
                 do
                 {
                     cts.Token.ThrowIfCancellationRequested();
+                    CheckPauseState(); // Check again before each retry
 
                     Server connection = null;
 
@@ -1337,6 +1477,9 @@ namespace DepotDownloader
                 depotDownloadCounter.sizeDownloaded = sizeDownloaded;
                 depotDownloadCounter.depotBytesCompressed += chunk.CompressedLength;
                 depotDownloadCounter.depotBytesUncompressed += chunk.UncompressedLength;
+
+                // Report progress during chunk downloads (throttled to every 500ms)
+                ReportProgress(depot.DepotId, depotDownloadCounter, file.FileName, force: false);
             }
 
             lock (downloadCounter)
@@ -1351,6 +1494,13 @@ namespace DepotDownloader
             {
                 var fileFinalPath = Path.Combine(depot.InstallDir, file.FileName);
                 Console.WriteLine("{0,6:#00.00}% {1}", (sizeDownloaded / (float)depotDownloadCounter.completeDownloadSize) * 100.0f, fileFinalPath);
+
+                lock (depotDownloadCounter)
+                {
+                    depotDownloadCounter.processedFiles++;
+                    // Force progress report on file completion
+                    ReportProgress(depot.DepotId, depotDownloadCounter, file.FileName, force: true);
+                }
             }
         }
 

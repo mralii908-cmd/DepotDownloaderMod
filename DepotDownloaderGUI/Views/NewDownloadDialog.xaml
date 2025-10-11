@@ -1,0 +1,194 @@
+<Window x:Class="DepotDownloaderGUI.Views.NewDownloadDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:models="clr-namespace:DepotDownloaderGUI.Models"
+        Title="New Download" Height="720" Width="850"
+        Background="{StaticResource BackgroundBrush}"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="New Download Configuration"
+                   FontSize="18"
+                   FontWeight="SemiBold"
+                   Foreground="{StaticResource TextBrush}"
+                   Margin="0,0,0,20"/>
+
+        <TextBlock Grid.Row="1" Text="App ID: (required)"
+                   Foreground="{StaticResource TextSecondaryBrush}"
+                   Margin="0,0,0,4"/>
+        <TextBox Grid.Row="2"
+                 x:Name="AppIdTextBox"
+                 Margin="0,0,0,12"/>
+
+        <TextBlock Grid.Row="3" Text="Branch: (default: public)"
+                   Foreground="{StaticResource TextSecondaryBrush}"
+                   Margin="0,0,0,4"/>
+        <TextBox Grid.Row="4"
+                 x:Name="BranchTextBox"
+                 Text="public"
+                 Margin="0,0,0,12"/>
+
+        <TextBlock Grid.Row="5" Text="Depots &amp; Manifests: (leave empty to download all depots)"
+                   Foreground="{StaticResource TextSecondaryBrush}"
+                   Margin="0,0,0,4"/>
+
+        <!-- Depots/Manifests Table -->
+        <Grid Grid.Row="6" Margin="0,0,0,12">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <DataGrid Grid.Row="0"
+                     x:Name="DepotsDataGrid"
+                     AutoGenerateColumns="False"
+                     CanUserAddRows="False"
+                     CanUserDeleteRows="False"
+                     GridLinesVisibility="All"
+                     HeadersVisibility="Column"
+                     SelectionMode="Single"
+                     Background="{StaticResource BackgroundBrush}"
+                     RowBackground="{StaticResource BackgroundBrush}"
+                     AlternatingRowBackground="{StaticResource SecondaryBackgroundBrush}"
+                     MinHeight="150">
+                <DataGrid.Columns>
+                    <!-- Depot ID Column -->
+                    <DataGridTextColumn Header="Depot ID"
+                                       Binding="{Binding DepotId, UpdateSourceTrigger=PropertyChanged}"
+                                       Width="120"/>
+
+                    <!-- Manifest ID Column -->
+                    <DataGridTextColumn Header="Manifest ID"
+                                       Binding="{Binding ManifestId, UpdateSourceTrigger=PropertyChanged}"
+                                       Width="170"/>
+
+                    <!-- Manifest File Column -->
+                    <DataGridTemplateColumn Header="Manifest File (.manifest)" Width="*">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox Grid.Column="0"
+                                            Text="{Binding ManifestFile, UpdateSourceTrigger=PropertyChanged}"
+                                            Margin="0,0,4,0"
+                                            VerticalAlignment="Center"
+                                            IsReadOnly="True"/>
+                                    <Button Grid.Column="1"
+                                           Content="Browse..."
+                                           Width="70"
+                                           Padding="4,2"
+                                           Click="BrowseManifestFile_Click"
+                                           Tag="{Binding}"/>
+                                </Grid>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
+                    <!-- Remove Button Column -->
+                    <DataGridTemplateColumn Header="" Width="60">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Button Content="Remove"
+                                       Click="RemoveDepot_Click"
+                                       Tag="{Binding}"
+                                       Padding="4,2"/>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                </DataGrid.Columns>
+            </DataGrid>
+
+            <Button Grid.Row="1"
+                   Content="+ Add Depot/Manifest"
+                   HorizontalAlignment="Left"
+                   Margin="0,8,0,0"
+                   Padding="12,6"
+                   Click="AddDepot_Click"/>
+        </Grid>
+
+        <TextBlock Grid.Row="7" Text="Depot Key File: (optional)"
+                   Foreground="{StaticResource TextSecondaryBrush}"
+                   Margin="0,0,0,4"/>
+        <Grid Grid.Row="8" Margin="0,0,0,12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBox Grid.Column="0"
+                     x:Name="DepotKeyFileTextBox"
+                     Margin="0,0,8,0"
+                     IsReadOnly="True"/>
+            <Button Grid.Column="1"
+                    Content="Browse..."
+                    Width="80"
+                    Click="BrowseDepotKeyButton_Click"/>
+        </Grid>
+
+        <TextBlock Grid.Row="9" Text="Target Directory:"
+                   Foreground="{StaticResource TextSecondaryBrush}"
+                   Margin="0,0,0,4"/>
+        <Grid Grid.Row="10" Margin="0,0,0,12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBox Grid.Column="0"
+                     x:Name="TargetDirectoryTextBox"
+                     Margin="0,0,8,0"/>
+            <Button Grid.Column="1"
+                    Content="Browse..."
+                    Width="80"
+                    Click="BrowseTargetButton_Click"/>
+        </Grid>
+
+        <Grid Grid.Row="11">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0" Orientation="Horizontal">
+                <CheckBox x:Name="VerifyFilesCheckBox"
+                          Content="Verify files"
+                          IsChecked="True"
+                          Margin="0,0,16,0"
+                          VerticalAlignment="Center"/>
+                <CheckBox x:Name="DownloadAllPlatformsCheckBox"
+                          Content="All platforms"
+                          Margin="0,0,16,0"
+                          VerticalAlignment="Center"/>
+                <CheckBox x:Name="DownloadAllLanguagesCheckBox"
+                          Content="All languages"
+                          VerticalAlignment="Center"/>
+            </StackPanel>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal"
+                       HorizontalAlignment="Right">
+                <Button Content="Start Download" Width="120" Margin="0,0,10,0"
+                       Click="StartButton_Click"
+                       IsDefault="True"/>
+                <Button Content="Cancel" Width="100"
+                       Click="CancelButton_Click"
+                       IsCancel="True"/>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>
