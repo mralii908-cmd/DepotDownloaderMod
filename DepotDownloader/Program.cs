@@ -82,6 +82,7 @@ namespace DepotDownloader
             ContentDownloader.Config.RememberPassword = HasParameter(args, "-remember-password");
             ContentDownloader.Config.UseQrCode = HasParameter(args, "-qr");
             ContentDownloader.Config.SkipAppConfirmation = HasParameter(args, "-no-mobile");
+            ContentDownloader.Config.JsonProgress = HasParameter(args, "--json-progress");
 
             if (username == null)
             {
@@ -146,7 +147,7 @@ namespace DepotDownloader
                     Console.WriteLine("Warning: Unable to load filelist: {0}", ex);
                 }
             }
-            
+
             string depotKeysList = GetParameter<string>(args, "-depotkeys");
 
 
@@ -158,7 +159,7 @@ namespace DepotDownloader
                     string[] lines = depotKeysListData.Split(new char[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
 
                     DepotKeyStore.AddAll(lines);
-                    
+
                     Console.WriteLine("Using depot keys from '{0}'.", depotKeysList);
                 }
                 catch (Exception ex)
@@ -571,6 +572,7 @@ namespace DepotDownloader
             Console.WriteLine("  -manifestfile <file>     - Use Specified Manifest file from Steam.");
             Console.WriteLine("  -apptoken <#>            - Use Specified App Access Token.");
             Console.WriteLine("  -packagetoken <#>        - Use Specified Package Access Token.");
+            Console.WriteLine("  --json-progress          - output progress as JSON lines for subprocess parsing.");
         }
 
         static void PrintVersion(bool printExtra = false)

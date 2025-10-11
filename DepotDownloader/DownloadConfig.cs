@@ -27,7 +27,6 @@ namespace DepotDownloader
 
         public bool RememberPassword { get; set; }
 
-        // A Steam LoginID to allow multiple concurrent connections
         public uint? LoginID { get; set; }
 
         public bool UseQrCode { get; set; }
@@ -35,5 +34,6 @@ namespace DepotDownloader
 
         public bool UseManifestFile { get; set; }
         public string ManifestFile { get; set; }
+        public bool JsonProgress { get; set; }
     }
 }
